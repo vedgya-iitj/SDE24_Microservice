@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MicroBlog</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            margin-top: 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: auto;
+        }
+        h2 {
+            margin-top: 20px;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 5px;
+        }
+        .post-card {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+        .comment-card {
+            margin-left: 20px;
+            padding: 10px;
+            border-left: 2px solid #007bff;
+        }
+        #usernameDisplay {
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1 class="text-center">Welcome to MicroBlog</h1>
+
+    <div id="navigation" class="my-4 text-center">
+        <button class="btn btn-warning" onclick="logout()" id="logoutBtn" style="display:none;">Logout</button>
+        <button class="btn btn-primary" onclick="showSection('register')">Register</button>
+        <button class="btn btn-success" onclick="showSection('login')">Login</button>
+    </div>
+
+    <!-- Alert Section for Success/Error Messages -->
+    <div id="alertSection" class="alert d-none" role="alert"></div>
+
+    <!-- Landing Page After Login -->
+    <div id="landingPage" style="display:none;">
+        <h2 class="text-center">Welcome, <span id="usernameDisplay"></span>!</h2>
+
+        <h2>All Posts</h2>
+        <div id="postsContainer"></div> <!-- Display all posts here -->
+
+        <h2>Create New Post</h2>
+        <form id="postForm">
+            <textarea class="form-control mb-2" id="postContent" placeholder="Write your post here..." rows="4" required></textarea>
+            <button type="submit" class="btn btn-danger">Create Post</button>
+        </form>
+    </div>
+
+    <!-- Registration Section -->
+    <div id="register" style="display:none;">
+        <h2>Register</h2>
+        <form id="registerForm">
+            <input type="text" class="form-control mb-2" id="username" placeholder="Username" required />
+            <input type="email" class="form-control mb-2" id="email" placeholder="Email" required />
+            <input type="password" class="form-control mb-2" id="password" placeholder="Password" required />
+            <button type="submit" class="btn btn-primary">Register</button>
+        </form>
+    </div>
+
+    <!-- Login Section -->
+    <div id="login" style="display:none;">
+        <h2>Login</h2>
+        <form id="loginForm">
+            <input type="text" class="form-control mb-2" id="loginUsername" placeholder="Username" required />
+            <input type="password" class="form-control mb-2" id="loginPassword" placeholder="Password" required />
+            <button type="submit" class="btn btn-success">Login</button>
+        </form>
+    </div>
+
+</div>
+
+<script>
+    const cookieUtils = {
+        setCookie: function(name, value, days = 7) {
+            const d = new Date();
+            d.setTime(d.getTime() + (days * 24 * 60 * 60 * 1000));
+            const expires = "expires=" + d.toUTCString();
+            document.cookie = name + "=" + value + ";" + expires + ";path=/";
+        },
+
+        getCookie: function(name) {
+            const nameEQ = name + "=";
+            const ca = document.cookie.split(';');
+            for(let i = 0; i < ca.length; i++) {
+                let c = ca[i];
+                while (c.charAt(0) === ' ') c = c.substring(1, c.length);
+                if (c.indexOf(nameEQ) === 0) return c.substring(nameEQ.length, c.length);
+            }
+            return null;
+        },
+
+        deleteCookie: function(name) {
+            document.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:01 GMT;path=/';
+        }
+    };
+
+
+    const apiUrlUsers = 'http://localhost:5001/api/users'; // User Service base URL
+    const apiUrlPosts = 'http://localhost:5002/api/posts'; // Post Service base URL
+    const apiUrlComments = 'http://localhost:5003/api/comments'; // Comment Service base URL
+
+
+    let loggedInUserId = cookieUtils.getCookie('userId') || '';
+    let loggedInUsername = cookieUtils.getCookie('username') || '';
+
+    window.addEventListener('DOMContentLoaded', () => {
+        if (loggedInUserId && loggedInUsername) {
+            showSection('landingPage');
+        }
+    });
+
+    function showAlert(message, type) {
+        const alertSection = document.getElementById('alertSection');
+        alertSection.innerText = message;
+        alertSection.className = `alert alert-${type}`;
+        alertSection.classList.remove('d-none');
+    }
+
+    function hideAlert() {
+        const alertSection = document.getElementById('alertSection');
+        alertSection.classList.add('d-none');
+    }
+
+    function showSection(section) {
+        hideAlert();
+        document.getElementById('register').style.display = 'none';
+        document.getElementById('login').style.display = 'none';
+        document.getElementById('landingPage').style.display = 'none';
+        document.getElementById('logoutBtn').style.display = 'none';
+
+        if (section === 'landingPage') {
+            document.getElementById('landingPage').style.display = 'block';
+            document.getElementById('logoutBtn').style.display = 'inline-block';
+            document.getElementById('usernameDisplay').innerText = cookieUtils.getCookie('username');
+            fetchPosts();
+        } else if (section === 'register') {
+            document.getElementById('register').style.display = 'block';
+        } else if (section === 'login') {
+            document.getElementById('login').style.display = 'block';
+        }
+    }
+
+
+    // Register User
+    document.getElementById('registerForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const username = document.getElementById('username').value;
+        const email = document.getElementById('email').value;
+        const password = document.getElementById('password').value;
+
+        try {
+            const response = await fetch(`${apiUrlUsers}/register`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ username, email, password })
+            });
+
+            const data = await response.json();
+            if (response.ok) {
+                showAlert(data.message || "Registration successful!", "success");
+                document.getElementById('registerForm').reset();
+                showSection('login');
+            } else {
+                showAlert(data.error || "Registration failed!", "danger");
+            }
+        } catch (error) {
+            showAlert("An error occurred. Please try again later.", "danger");
+        }
+    });
+
+    // Login User
+    // Update the login handler
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const username = document.getElementById('loginUsername').value;
+        const password = document.getElementById('loginPassword').value;
+
+        try {
+            const response = await fetch(`${apiUrlUsers}/login`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ username, password })
+            });
+
+            const data = await response.json();
+            if (response.ok) {
+                loggedInUserId = data.user.id;
+                loggedInUsername = data.user.username;
+
+                // Set cookies
+                cookieUtils.setCookie('userId', data.user.id);
+                cookieUtils.setCookie('username', data.user.username);
+
+                showAlert(data.message || "Login successful!", "success");
+                showSection('landingPage');
+                document.getElementById('loginForm').reset();
+            } else {
+                showAlert(data.error || "Login failed", "danger");
+            }
+        } catch (error) {
+            showAlert("An error occurred. Please try again later.", "danger");
+        }
+    });
+
+    // Add logout function
+    function logout() {
+        cookieUtils.deleteCookie('userId');
+        cookieUtils.deleteCookie('username');
+        loggedInUserId = '';
+        loggedInUsername = '';
+        showSection('login');
+    }
+
+    document.getElementById('postForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const content = document.getElementById('postContent').value;
+        const userId = cookieUtils.getCookie('userId');
+
+        if (!userId) {
+            showAlert("Please login first", "warning");
+            showSection('login');
+            return;
+        }
+
+        try {
+            const response = await fetch(apiUrlPosts, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ userId, content })
+            });
+
+            const data = await response.json();
+            if (response.ok) {
+                showAlert(data.message || "Post created!", "success");
+                document.getElementById('postContent').value = '';
+                fetchPosts();
+            } else {
+                showAlert(data.error || "Failed to create post.", "danger");
+            }
+        } catch (error) {
+            showAlert("An error occurred. Please try again later.", "danger");
+        }
+    });
+
+    // Fetch all posts
+    async function fetchPosts() {
+        try {
+            const response = await fetch(apiUrlPosts);
+            const posts = await response.json();
+            const postsContainer = document.getElementById('postsContainer');
+            postsContainer.innerHTML = '';
+
+            posts.forEach(post => {
+                const postElement = document.createElement('div');
+                postElement.className = 'post-card';
+                postElement.innerHTML = `
+                    <h5>${post.content}</h5>
+                    <p>Posted by User ID: ${post.userId} on ${new Date(post.createdAt).toLocaleString()}</p>
+                    <button class="btn btn-link" onclick="showComments('${post.id}')">View Comments</button>
+                    <button class="btn btn-secondary btn-sm" onclick="addComment('${post.id}')">Add Comment</button>
+                    <div id="comments-${post.id}" style="display:none;"></div> <!-- Container for comments -->
+                    <hr/>
+                `;
+                postsContainer.appendChild(postElement);
+            });
+        } catch (error) {
+            showAlert("Failed to load posts. Please try again later.", "danger");
+        }
+    }
+
+    // Show comments for a post
+    async function showComments(postId) {
+        const commentsContainer = document.getElementById(`comments-${postId}`);
+        if (commentsContainer.style.display === 'block') {
+            commentsContainer.style.display = 'none';
+            return;
+        }
+
+        try {
+            const response = await fetch(`${apiUrlComments}/${postId}`);
+            const comments = await response.json();
+            commentsContainer.innerHTML = '';
+
+            comments.forEach(comment => {
+                const commentElement = document.createElement('div');
+                commentElement.className = 'comment-card';
+                commentElement.innerHTML = `
+                    <p><strong>User ID ${comment.userId}:</strong> ${comment.commentText}</p>
+                    <p class="text-muted">Commented on ${new Date(comment.createdAt).toLocaleString()}</p>
+                `;
+                commentsContainer.appendChild(commentElement);
+            });
+
+            commentsContainer.style.display = 'block';
+        } catch (error) {
+            showAlert("Failed to load comments. Please try again later.", "danger");
+        }
+    }
+
+    // Add Comment to a Post
+    async function addComment(postId) {
+        const userId = cookieUtils.getCookie('userId');
+        if (!userId) {
+            showAlert("Please login first", "warning");
+            showSection('login');
+            return;
+        }
+
+        const commentText = prompt("Enter your comment:");
+        if (!commentText) return;
+
+        try {
+            const response = await fetch(`${apiUrlComments}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ postId, userId, commentText })
+            });
+
+            const data = await response.json();
+            if (response.ok) {
+                showAlert(data.message || "Comment added!", "success");
+                showComments(postId);
+            } else {
+                showAlert(data.error || "Failed to add comment.", "danger");
+            }
+        } catch (error) {
+            showAlert("An error occurred. Please try again later.", "danger");
+        }
+    }
+    // Initial fetch of posts when the page loads
+    fetchPosts();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,104 @@
+version: '3.8'
+
+services:
+  frontend:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html
+    depends_on:
+      - userservice
+      - postservice
+      - commentservice
+
+  userservice:
+    build:
+      context: ./userservice
+      dockerfile: Dockerfile
+    ports:
+      - "5001:5001"
+    environment:
+      - MYSQL_HOST=mysql_users
+      - MYSQL_USER=microblog
+      - MYSQL_PASSWORD=userservice
+      - MYSQL_DATABASE=userservice
+    networks:
+      - microblog-network
+    depends_on:
+      mysql_users:
+        condition: service_healthy
+    volumes:
+      - ./userservice:/usr/src/app
+      - /usr/src/app/node_modules
+
+  mysql_users:
+    image: mysql:8.0
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_DATABASE=userservice
+      - MYSQL_USER=microblog
+      - MYSQL_PASSWORD=userservice
+      - MYSQL_ROOT_PASSWORD=root_password  # Changed to different password for root
+    volumes:
+      - mysql_users_data:/var/lib/mysql
+      - ./userservice/db_setup.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - microblog-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "--password=root_password"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  postservice:
+    build:
+      context: ./postservice
+      dockerfile: Dockerfile
+    ports:
+      - "5002:5002"
+    environment:
+      - MONGODB_URI_POSTS=mongodb://mongoPost:27017/posts
+      - NODE_ENV=production
+    depends_on:
+      - mongoPost
+    volumes:
+      - ./postservice:/usr/src/app
+      - /usr/src/app/node_modules
+
+  commentservice:
+    build:
+      context: ./commentservice
+      dockerfile: Dockerfile
+    ports:
+      - "5003:5003"
+    environment:
+      - MONGODB_URI_COMMENTS=mongodb://mongoComment:27017/comments
+      - NODE_ENV=production
+    depends_on:
+      - mongoComment
+    volumes:
+      - ./commentservice:/usr/src/app
+      - /usr/src/app/node_modules
+
+  mongoPost:
+    image: mongo:latest
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongopost_data:/data/db
+
+  mongoComment:
+    image: mongo:latest
+    ports:
+      - "27019:27017"
+    volumes:
+      - mongocomment_data:/data/db
+networks:
+  microblog-network:
+    driver: bridge
+volumes:
+  mysql_users_data:
+  mongopost_data:
+  mongocomment_data:
